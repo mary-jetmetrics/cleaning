@@ -301,7 +301,7 @@ function resultBlock(h, links = '') {
     <p class="cap">${dayOf(h)}, ${WEEKDAY[d.getDay()]}${fin ? '' : ' · идёт'}${!lead && n ? ' · ничья' : ''}</p>
     <div class="people">
       ${['maria', 'gleb'].map(p => `<div class="person ${lead && lead !== p ? 'lost' : ''}">
-        <span class="who-line"><span class="tag ${p}">${PEOPLE[p]}</span>${lead === p ? `${CROWN}<span class="sr">${word(p)}</span>` : ''}</span>
+        <span class="who-line"><span class="tag ${p}">${PEOPLE[p]}</span>${lead === p ? `${CROWN.replace('class="crown"', `class="crown ${p}"`)}<span class="sr">${word(p)}</span>` : ''}</span>
         <span class="num">${t[p]}</span>
         <span class="cap">${plural(t[p], 'балл', 'балла', 'баллов')} · ${t[p + 'N']} ${plural(t[p + 'N'], 'дело', 'дела', 'дел')}</span>
       </div>`).join('')}
