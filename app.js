@@ -18,7 +18,8 @@ let LIST = [];                // id всех уборок, по порядку
 let S = null, SHA = null;     // текущая уборка и sha её файла
 const HISTORY = {};           // id → прошлая уборка
 let saving = false, dirty = false, saveTimer = null, net = 'ok';
-let VIEW = null, BACK = null;  // экран истории: 'all' — все уборки, { id } — одна уборка; null — обычный
+let VIEW = null, BACK = null;
+let ADDING = null, DRAFT = null, pendingRender = false;  // открытая форма «свой пункт»: id помещения и введённое  // экран истории: 'all' — все уборки, { id } — одна уборка; null — обычный
 const closed = JSON.parse(LS.get('cl-closed') || '{}');
 const root = document.getElementById('root');
 
@@ -44,8 +45,8 @@ async function gh(path, opts = {}) {
   return r;
 }
 async function getFile(file) { const j = await (await gh(`/contents/${file}?ref=${BRANCH}`)).json(); return { sha: j.sha, data: JSON.parse(b64dec(j.content)) }; }
-async function putFile(file, data, sha) {
-  const body = { message: 'отметки из приложения', content: b64enc(JSON.stringify(data, null, 1) + '\n'), branch: BRANCH };
+async function putFile(file, data, sha, message = 'отметки из приложения', text = JSON.stringify(data, null, 1) + '\n') {
+  const body = { message, content: b64enc(text), branch: BRANCH };
   if (sha) body.sha = sha;
   return (await (await gh(`/contents/${file}`, { method: 'PUT', body: JSON.stringify(body) })).json()).content.sha;
 }
@@ -80,7 +81,7 @@ async function save() {
     setNet('ok');
   } catch (e) { setNet('err'); dirty = true; }
   saving = false;
-  render();
+  bgRender();
   if (dirty) setTimeout(save, net === 'err' ? 5000 : 0);
 }
 async function poll() {
@@ -91,10 +92,10 @@ async function poll() {
     LIST = names;
     const last = names[names.length - 1];
     if (!last) return;
-    if (!S || last !== S.id) { const r = await getFile(`sessions/${last}.json`); if (saving) return; S = r.data; SHA = r.sha; return render(); }
+    if (!S || last !== S.id) { const r = await getFile(`sessions/${last}.json`); if (saving) return; S = r.data; SHA = r.sha; return bgRender(); }
     const r = await getFile(file());
     if (saving || r.sha === SHA) return;
-    S = merge(S, r.data); SHA = r.sha; setNet('ok'); render();
+    S = merge(S, r.data); SHA = r.sha; setNet('ok'); bgRender();
   } catch (e) { /* следующая попытка через 8 секунд */ }
 }
 function setNet(v) { net = v; const el = document.getElementById('net'); if (el) el.textContent = NET[v]; }
@@ -106,12 +107,20 @@ function totals(s) {
   for (const m of Object.values(s.marks || {})) if (m.by && m.by in PEOPLE) { t[m.by] += m.pts; t[m.by + 'N']++; }
   return t;
 }
-// свои пункты — в конце раздела, отдельной подгруппой, если в разделе есть подгруппы
+// свои пункты уборки — в конце своей подгруппы; без подгруппы — в конце помещения, подгруппой «Свои пункты».
+// Пункт «в постоянный список» лежит и в tasks.json, и в extra (чтобы второй телефон увидел сразу) — берём один раз.
 const sections = () => TASKS.sections.map(sec => {
-  const own = (S.extra || []).filter(x => x.sec === sec.id);
-  const grouped = sec.tasks.some(x => x.group);
-  return { ...sec, tasks: [...sec.tasks, ...own.map(x => grouped ? { ...x, group: 'Свои пункты' } : x)] };
+  const tasks = [...sec.tasks], grouped = tasks.some(x => x.group);
+  for (const x of (S.extra || []).filter(y => y.sec === sec.id)) {
+    if (TASKS.sections.some(z => z.tasks.some(t => t.id === x.id))) continue;
+    const at = x.group ? tasks.map(t => t.group).lastIndexOf(x.group) : -1;
+    if (at >= 0) tasks.splice(at + 1, 0, x); else tasks.push(grouped ? { ...x, group: 'Свои пункты' } : x);
+  }
+  return { ...sec, tasks };
 });
+const groupsOf = sec => [...new Set(sec.tasks.map(x => x.group).filter(Boolean))];
+// фоновая перерисовка (опрос, сохранение) ждёт, пока открыта форма — иначе на телефоне закроется клавиатура
+function bgRender() { if (ADDING && root.querySelector('.addform')) { pendingRender = true; return; } render(); }
 // подряд идущие дела одной подгруппы → [{ group, tasks }]
 function byGroup(tasks) {
   const out = [];
@@ -182,7 +191,7 @@ function listView() {
             <span class="pts">+${x.pts}</span>
           </button></li>`;
         }).join('')}</ul>`).join('')}
-        <button class="add" data-add="${sec.id}">+ свой пункт</button>`}
+        ${ADDING === sec.id ? addForm(sec) : `<button class="add" data-add="${sec.id}">+ свой пункт</button>`}`}
       </section>`;
     }).join('')}
     <div class="foot">
@@ -190,6 +199,42 @@ function listView() {
       <button class="link" id="all">Прошлые уборки</button>
       ${footLinks()}
     </div>`;
+}
+
+function addForm(sec) {
+  const d = DRAFT, gs = groupsOf(TASKS.sections.find(x => x.id === sec.id));
+  const chips = (name, vals, cur) => vals.map(v => `<label class="chip"><input type="radio" name="${name}" value="${esc(v)}" ${String(v) === String(cur) ? 'checked' : ''}><span>${esc(v)}</span></label>`).join('');
+  return `<form class="addform" data-sec="${sec.id}">
+    <input name="name" value="${esc(d.name)}" placeholder="Что сделать?" autocomplete="off" aria-label="Что сделать">
+    <div class="seg"><span class="cap lbl">Баллы</span>${chips('pts', [1, 2, 3, 4, 5], d.pts)}</div>
+    ${gs.length ? `<div class="seg"><span class="cap lbl">Подгруппа</span>${chips('group', gs, d.group)}</div>` : ''}
+    <div class="opts">
+      <label><input type="radio" name="keep" value="once" ${d.keep !== 'always' ? 'checked' : ''}> Только эта уборка</label>
+      <label><input type="radio" name="keep" value="always" ${d.keep === 'always' ? 'checked' : ''}> В постоянный список</label>
+    </div>
+    ${d.err ? `<p class="msg">${esc(d.err)}</p>` : ''}
+    <div class="seg"><button class="btn main" type="submit" ${d.busy ? 'disabled' : ''}>${d.busy ? 'Сохраняю…' : 'Добавить'}</button><button class="link" type="button" id="addcancel">Отмена</button></div>
+  </form>`;
+}
+function closeAdd() { ADDING = null; DRAFT = null; pendingRender = false; render(); }
+
+// tasks.json пишем в том же виде, что и руками: одно дело — одна строка
+function tasksText(d) {
+  const J = v => JSON.stringify(v);
+  return `{\n  "scale": ${J(d.scale)},\n  "sections": [\n${d.sections.map(s => `    {\n      "id": ${J(s.id)},\n      "name": ${J(s.name)},\n${s.note ? `      "note": ${J(s.note)},\n` : ''}      "tasks": [\n${s.tasks.map(t => `        { "id": ${J(t.id)}, "name": ${J(t.name)}, "pts": ${t.pts}${t.group ? `, "group": ${J(t.group)}` : ''} }`).join(',\n')}\n      ]\n    }`).join(',\n')}\n  ]\n}\n`;
+}
+// дело в постоянный список: свежий tasks.json → вставить в конец подгруппы → записать; при конфликте — заново
+async function addForever(task, secId) {
+  for (let i = 0; ; i++) {
+    const r = await getFile('tasks.json');
+    const sec = r.data.sections.find(x => x.id === secId);
+    if (!sec.tasks.some(t => t.id === task.id)) {
+      const at = task.group ? sec.tasks.map(t => t.group).lastIndexOf(task.group) : -1;
+      sec.tasks.splice(at >= 0 ? at + 1 : sec.tasks.length, 0, task);
+    }
+    try { await putFile('tasks.json', r.data, r.sha, `в постоянный список: ${task.name}`, tasksText(r.data)); return r.data; }
+    catch (e) { if (![409, 422].includes(e.status) || i >= 4) throw e; }
+  }
 }
 
 function homeView() {
@@ -215,7 +260,7 @@ async function loadHistory(ids) {
   const need = ids.filter(id => !HISTORY[id] && !(S && S.id === id));
   if (!need.length) return;
   await Promise.all(need.map(async id => { try { HISTORY[id] = (await getFile(`sessions/${id}.json`)).data; } catch (e) { /* покажем позже */ } }));
-  if (VIEW || !S || (S.fin && S.fin.v)) render();
+  if (VIEW || !S || (S.fin && S.fin.v)) bgRender();
 }
 
 /* ---------- история: все уборки и одна уборка ---------- */
@@ -317,11 +362,11 @@ root.addEventListener('click', async e => {
   if (b.dataset.marker) { MARKER = b.dataset.marker; render(); return; }
   if (b.dataset.sec) { closed[b.dataset.sec] = !closed[b.dataset.sec]; LS.set('cl-closed', JSON.stringify(closed)); render(); return; }
   if (b.dataset.add) {
-    const name = (prompt('Что сделать?') || '').trim(); if (!name) return;
-    const p = Math.max(1, Math.min(5, parseInt(prompt('Сколько баллов, от 1 до 5?', '2'), 10) || 2));
-    S.extra = S.extra || []; S.extra.push({ id: 'x-' + Date.now().toString(36), sec: b.dataset.add, name, pts: p });
-    render(); queueSave(); return;
+    const gs = groupsOf(TASKS.sections.find(x => x.id === b.dataset.add));
+    ADDING = b.dataset.add; DRAFT = { name: '', pts: 2, group: gs[0] || '', keep: 'once' };
+    render(); const f = root.querySelector('.addform input[name=name]'); if (f) f.focus(); return;
   }
+  if (b.id === 'addcancel') { closeAdd(); return; }
   if (b.id === 'finish') { if (!confirm('Закончить уборку и посмотреть итог?')) return; S.fin = { v: true, at: Date.now() }; render(); queueSave(); window.scrollTo(0, 0); return; }
   if (b.id === 'reopen') { S.fin = { v: false, at: Date.now() }; render(); queueSave(); return; }
   if (b.id === 'start') { b.disabled = true; await startNew(); return; }
@@ -333,7 +378,25 @@ root.addEventListener('click', async e => {
   }
   if (b.id === 'logout') { if (!confirm('Выйти на этом устройстве?')) return; LS.del('cl-token'); TOKEN = null; loginView(); }
 });
-root.addEventListener('submit', e => {
+// черновик формы — в DRAFT, чтобы перерисовка по нажатию галочки не стёрла введённое
+root.addEventListener('input', e => {
+  const f = e.target.closest('.addform'); if (!f || !DRAFT) return;
+  const t = e.target; DRAFT[t.name] = t.name === 'pts' ? +t.value : t.value;
+});
+root.addEventListener('submit', async e => {
+  if (e.target.classList.contains('addform')) {
+    e.preventDefault();
+    const d = DRAFT, name = (d.name || '').trim();
+    if (!name) { d.err = 'Напиши, что сделать'; render(); return; }
+    const task = { id: (d.keep === 'always' ? 'u-' : 'x-') + Date.now().toString(36), name, pts: d.pts, group: d.group || undefined };
+    if (d.keep === 'always') {
+      d.busy = true; d.err = ''; render();
+      try { TASKS = await addForever({ id: task.id, name, pts: task.pts, group: task.group }, ADDING); }
+      catch (err) { d.busy = false; d.err = 'Не получилось сохранить в постоянный список. Проверь интернет и нажми ещё раз.'; render(); return; }
+    }
+    S.extra = S.extra || []; S.extra.push({ ...task, sec: ADDING });
+    queueSave(); closeAdd(); return;
+  }
   if (e.target.id !== 'login') return;
   e.preventDefault();
   TOKEN = e.target.key.value.trim(); LS.set('cl-token', TOKEN);
