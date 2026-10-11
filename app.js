@@ -127,7 +127,7 @@ function scoreBlock(t, all, done) {
       ${['maria', 'gleb'].map(p => `<div class="person"><span class="tag ${p}">${PEOPLE[p]}</span><span class="num">${t[p]}</span><span class="cap">${plural(t[p], 'балл', 'балла', 'баллов')} · ${t[p + 'N']} ${plural(t[p + 'N'], 'дело', 'дела', 'дел')}</span></div>`).join('')}
     </div>
     ${all ? `<div class="bar" aria-hidden="true"><i class="maria" style="width:${t.maria / sum * 100}%"></i><i class="gleb" style="width:${t.gleb / sum * 100}%"></i></div>
-    <p class="cap">${verdict(t)} · сделано ${done.n} из ${done.of}</p>` : `<p class="cap">${verdict(t)}</p>`}
+    <p class="cap">${verdict(t)} · сделано ${done.n} из ${done.of}</p>` : ''}
   </div>`;
 }
 

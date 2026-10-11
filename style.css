@@ -69,7 +69,7 @@ button { background: none; border: 0; padding: 0; cursor: pointer; -webkit-tap-h
 
 .result { display: grid; gap: var(--space-3); padding: var(--space-4); border-radius: var(--radius-md); background: #fff2f5; }
 .result .tag.maria { background: var(--bg); }
-.result .bar .maria { background: var(--bg); }
+.result .link { justify-self: start; }
 .hist { display: flex; justify-content: space-between; gap: var(--space-3); padding: var(--space-2) 0; }
 
 .foot { display: grid; gap: var(--space-4); justify-items: start; margin-top: var(--space-3); }
