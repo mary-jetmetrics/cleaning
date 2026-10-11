@@ -105,7 +105,21 @@ function totals(s) {
   for (const m of Object.values(s.marks || {})) if (m.by && m.by in PEOPLE) { t[m.by] += m.pts; t[m.by + 'N']++; }
   return t;
 }
-const sections = () => TASKS.sections.map(sec => ({ ...sec, tasks: [...sec.tasks, ...(S.extra || []).filter(x => x.sec === sec.id)] }));
+// свои пункты — в конце раздела, отдельной подгруппой, если в разделе есть подгруппы
+const sections = () => TASKS.sections.map(sec => {
+  const own = (S.extra || []).filter(x => x.sec === sec.id);
+  const grouped = sec.tasks.some(x => x.group);
+  return { ...sec, tasks: [...sec.tasks, ...own.map(x => grouped ? { ...x, group: 'Свои пункты' } : x)] };
+});
+// подряд идущие дела одной подгруппы → [{ group, tasks }]
+function byGroup(tasks) {
+  const out = [];
+  for (const x of tasks) {
+    const last = out[out.length - 1], g = x.group || '';
+    if (last && last.group === g) last.tasks.push(x); else out.push({ group: g, tasks: [x] });
+  }
+  return out;
+}
 const isDone = id => !!(S.marks[id] && S.marks[id].by);
 function verdict(t) {
   if (t.maria === t.gleb) return t.maria ? `Ничья: ${pts(t.maria)} на ${pts(t.gleb)}` : 'Пока никто ничего, всё впереди';
@@ -155,7 +169,8 @@ function listView() {
           <span class="chev" aria-hidden="true">${shut ? '›' : '⌄'}</span>
         </button>
         ${shut ? '' : `${sec.note ? `<p class="cap note">${esc(sec.note)}</p>` : ''}
-        <ul class="rows">${sec.tasks.map(x => {
+        ${byGroup(sec.tasks).map(gr => `${gr.group ? `<p class="grp">${esc(gr.group)}</p>` : ''}
+        <ul class="rows">${gr.tasks.map(x => {
           const m = S.marks[x.id], by = m && m.by;
           return `<li><button class="row ${by ? 'done' : ''}" data-task="${esc(x.id)}" data-pts="${x.pts}">
             <span class="box" aria-hidden="true">${by ? '<svg viewBox="0 0 16 16"><path d="M3.5 8.5l3 3 6-7"/></svg>' : ''}</span>
@@ -163,7 +178,7 @@ function listView() {
             ${by ? `<span class="tag ${by}">${PEOPLE[by]}</span>` : ''}
             <span class="pts">+${x.pts}</span>
           </button></li>`;
-        }).join('')}</ul>
+        }).join('')}</ul>`).join('')}
         <button class="add" data-add="${sec.id}">+ свой пункт</button>`}
       </section>`;
     }).join('')}
