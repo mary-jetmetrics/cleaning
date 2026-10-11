@@ -288,21 +288,24 @@ function homeView() {
     <div class="foot">${footLinks()}</div>`;
   loadHistory(past);
 }
-// итог уборки (вариант №6 из https://claude.ai/artifact/5pmKTsEhfw3Y7CL9HYdEBF): дата; счёт внутри полосы,
-// доли — по сделанному; корона у победителя; под полосой — метки и сколько дел; всего сделано.
+// итог уборки: дата, счёт, победитель — подписью у метки, полоска — доли сделанного, всего сделано.
 // Несделанное не показываем: не сделали — значит, решили не делать (Мария, 11.10.26)
-const CROWN = '<svg class="crown" viewBox="0 0 18 14" aria-hidden="true"><path d="M2 12 L3 3 L7 7 L9 2 L11 7 L15 3 L16 12 Z"/></svg>';
 function resultBlock(h, links = '') {
-  const t = totals(h), d = new Date(h.started), fin = h.fin && h.fin.v, n = t.mariaN + t.glebN;
+  const t = totals(h), d = new Date(h.started), fin = h.fin && h.fin.v;
+  const n = t.mariaN + t.glebN, sum = t.maria + t.gleb || 1;
   const lead = t.maria === t.gleb ? null : t.maria > t.gleb ? 'maria' : 'gleb';
-  const seg = p => t[p] ? `<span class="${p}" style="flex-grow:${t[p]}">${lead === p ? `${CROWN}<span class="sr">${fin ? (p === 'maria' ? 'победила' : 'победил') : 'впереди'}</span>` : ''}${t[p]}</span>` : '';
+  const word = p => fin ? (p === 'maria' ? 'победила' : 'победил') : 'впереди';
   return `<section class="result">
     <p class="cap">${dayOf(h)}, ${WEEKDAY[d.getDay()]}${fin ? '' : ' · идёт'}${!lead && n ? ' · ничья' : ''}</p>
-    ${n ? `<div class="bigbar">${seg('maria')}${seg('gleb')}</div>` : ''}
     <div class="people">
-      ${['maria', 'gleb'].map(p => `<div class="person ${p}"><span class="tag ${p}">${PEOPLE[p]}</span><span class="cap">${t[p + 'N']} ${plural(t[p + 'N'], 'дело', 'дела', 'дел')}</span></div>`).join('')}
+      ${['maria', 'gleb'].map(p => `<div class="person ${lead && lead !== p ? 'lost' : ''}">
+        <span class="who-line"><span class="tag ${p}">${PEOPLE[p]}</span>${lead === p ? `<span class="win">${word(p)}</span>` : ''}</span>
+        <span class="num">${t[p]}</span>
+        <span class="cap">${plural(t[p], 'балл', 'балла', 'баллов')} · ${t[p + 'N']} ${plural(t[p + 'N'], 'дело', 'дела', 'дел')}</span>
+      </div>`).join('')}
     </div>
-    <p class="cap">${n ? `Всего сделано ${n} ${plural(n, 'дело', 'дела', 'дел')}` : 'Ничего не отмечено'}</p>
+    ${n ? `<div class="bar" aria-hidden="true"><i class="maria" style="width:${t.maria / sum * 100}%"></i><i class="gleb" style="width:${t.gleb / sum * 100}%"></i></div>
+    <p class="cap">Всего сделано ${n} ${plural(n, 'дело', 'дела', 'дел')}</p>` : '<p class="cap">Ничего не отмечено</p>'}
     ${links}
   </section>`;
 }

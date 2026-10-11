@@ -106,14 +106,10 @@ button { background: none; border: 0; padding: 0; cursor: pointer; -webkit-tap-h
 .opts label { display: flex; align-items: center; gap: var(--space-2); }
 .opts input { margin: 0; accent-color: var(--ink); }
 
-/* итог: счёт внутри полосы, доли по баллам; корона у победителя; Глеб — справа */
-.bigbar { display: flex; height: 38px; border-radius: var(--radius-md); overflow: hidden; font-weight: 600; font-size: 16px; font-variant-numeric: tabular-nums; }
-.bigbar span:not(.sr) { flex: 1 1 0; min-width: 52px; display: flex; align-items: center; gap: 6px; padding: 0 var(--space-3); }
-.bigbar .maria { background: #f7b8c9; }
-.bigbar .gleb { background: #9fdcf2; justify-content: flex-end; }
-.crown { width: 20px; height: 16px; flex: none; fill: var(--bg); stroke: var(--ink); stroke-width: 1.2; stroke-linejoin: round; }
-.result .person.gleb { justify-items: end; text-align: right; }
-.sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+/* победитель — подпись у метки, у проигравшего счёт приглушён */
+.who-line { display: flex; align-items: center; gap: var(--space-2); }
+.win { font-size: 12.5px; line-height: 18px; font-weight: 600; }
+.person.lost .num { color: var(--ink-muted); }
 /* итог уборки — белый блок с рамкой, чтобы метка Марии везде была розовой (Мария, 11.10.26) */
 .result { display: grid; gap: var(--space-3); padding: var(--space-4); border-radius: var(--radius-md); background: var(--bg); border: 1px solid var(--line); }
 .result .link { justify-self: start; }
