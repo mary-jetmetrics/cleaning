@@ -110,6 +110,8 @@ button { background: none; border: 0; padding: 0; cursor: pointer; -webkit-tap-h
 .who-line { display: flex; align-items: center; gap: var(--space-2); }
 .win { font-size: 12.5px; line-height: 18px; font-weight: 600; }
 .person.lost .num { color: var(--ink-muted); }
+.num-line { display: flex; align-items: center; gap: 6px; }
+.crown { width: 22px; height: 17px; flex: none; fill: var(--pink); stroke: var(--accent); stroke-width: 1.2; stroke-linejoin: round; }
 /* итог уборки — белый блок с рамкой, чтобы метка Марии везде была розовой (Мария, 11.10.26) */
 .result { display: grid; gap: var(--space-3); padding: var(--space-4); border-radius: var(--radius-md); background: var(--bg); border: 1px solid var(--line); }
 .result .link { justify-self: start; }

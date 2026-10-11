@@ -290,6 +290,8 @@ function homeView() {
 }
 // итог уборки: дата, счёт, победитель — подписью у метки, полоска — доли сделанного, всего сделано.
 // Несделанное не показываем: не сделали — значит, решили не делать (Мария, 11.10.26)
+// корона у счёта победителя — из варианта №1 (https://claude.ai/artifact/5pmKTsEhfw3Y7CL9HYdEBF)
+const CROWN = '<svg class="crown" viewBox="0 0 18 14" aria-hidden="true"><path d="M2 12 L3 3 L7 7 L9 2 L11 7 L15 3 L16 12 Z"/></svg>';
 function resultBlock(h, links = '') {
   const t = totals(h), d = new Date(h.started), fin = h.fin && h.fin.v;
   const n = t.mariaN + t.glebN, sum = t.maria + t.gleb || 1;
@@ -300,7 +302,7 @@ function resultBlock(h, links = '') {
     <div class="people">
       ${['maria', 'gleb'].map(p => `<div class="person ${lead && lead !== p ? 'lost' : ''}">
         <span class="who-line"><span class="tag ${p}">${PEOPLE[p]}</span>${lead === p ? `<span class="win">${word(p)}</span>` : ''}</span>
-        <span class="num">${t[p]}</span>
+        <span class="num-line"><span class="num">${t[p]}</span>${lead === p ? CROWN : ''}</span>
         <span class="cap">${plural(t[p], 'балл', 'балла', 'баллов')} · ${t[p + 'N']} ${plural(t[p + 'N'], 'дело', 'дела', 'дел')}</span>
       </div>`).join('')}
     </div>
