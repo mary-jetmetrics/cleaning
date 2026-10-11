@@ -106,8 +106,8 @@ button { background: none; border: 0; padding: 0; cursor: pointer; -webkit-tap-h
 .opts label { display: flex; align-items: center; gap: var(--space-2); }
 .opts input { margin: 0; accent-color: var(--ink); }
 
-.result { display: grid; gap: var(--space-3); padding: var(--space-4); border-radius: var(--radius-md); background: #fff2f5; }
-.result .tag.maria { background: var(--bg); }
+/* итог уборки — белый блок с рамкой, чтобы метка Марии везде была розовой (Мария, 11.10.26) */
+.result { display: grid; gap: var(--space-3); padding: var(--space-4); border-radius: var(--radius-md); background: var(--bg); border: 1px solid var(--line); }
 .result .link { justify-self: start; }
 .hist { display: flex; justify-content: space-between; gap: var(--space-3); padding: var(--space-2) 0; }
 /* история: строка уборки — кнопка, внутри уборки — кто что сделал */
