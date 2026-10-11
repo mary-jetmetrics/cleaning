@@ -523,7 +523,8 @@ function readHash() {
   const h = new URLSearchParams(location.hash.slice(1));
   if (h.get('k')) { TOKEN = h.get('k'); LS.set('cl-token', TOKEN); }
   if (h.get('me') in PEOPLE) { ME = h.get('me'); MARKER = ME; LS.set('cl-me', ME); }
-  if (location.hash) history.replaceState(null, '', location.pathname);
+  // ссылку с ключом не обрезаем: с ней «Открыть в Safari» и «На экран „Домой“» — у иконки своё хранилище,
+  // и ключ она возьмёт из адреса. Ключ только на список уборки, поэтому держать его в адресе можно
 }
 let polling = false;
 async function boot() {
