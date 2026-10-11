@@ -18,8 +18,9 @@ let LIST = [];                // id всех уборок, по порядку
 let S = null, SHA = null;     // текущая уборка и sha её файла
 const HISTORY = {};           // id → прошлая уборка
 let saving = false, dirty = false, saveTimer = null, net = 'ok';
-let VIEW = null, BACK = null;
-let ADDING = null, DRAFT = null, pendingRender = false;  // открытая форма «свой пункт»: id помещения и введённое  // экран истории: 'all' — все уборки, { id } — одна уборка; null — обычный
+let VIEW = null, BACK = null;  // экран истории: 'all' — все уборки, { id } — одна уборка; null — обычный
+// открытая форма дела: ADDING — id помещения («+ свой пункт»), EDITING — id дела (долгое нажатие); DRAFT — введённое
+let ADDING = null, EDITING = null, DRAFT = null, pendingRender = false;
 const closed = JSON.parse(LS.get('cl-closed') || '{}');
 const root = document.getElementById('root');
 
@@ -61,7 +62,10 @@ function merge(a, b) {
   const marks = { ...a.marks };
   for (const [k, m] of Object.entries(b.marks || {})) if (!marks[k] || m.at > marks[k].at) marks[k] = m;
   const extra = [...(a.extra || [])];
-  for (const x of b.extra || []) if (!extra.some(y => y.id === x.id)) extra.push(x);
+  for (const x of b.extra || []) {
+    const i = extra.findIndex(y => y.id === x.id);
+    if (i < 0) extra.push(x); else if ((x.at || 0) > (extra[i].at || 0)) extra[i] = x;
+  }
   const fin = (b.fin && (!a.fin || b.fin.at > a.fin.at)) ? b.fin : a.fin;
   return { ...a, marks, extra, fin };
 }
@@ -111,16 +115,18 @@ function totals(s) {
 // Пункт «в постоянный список» лежит и в tasks.json, и в extra (чтобы второй телефон увидел сразу) — берём один раз.
 const sections = () => TASKS.sections.map(sec => {
   const tasks = [...sec.tasks], grouped = tasks.some(x => x.group);
-  for (const x of (S.extra || []).filter(y => y.sec === sec.id)) {
-    if (TASKS.sections.some(z => z.tasks.some(t => t.id === x.id))) continue;
+  for (const x of (S.extra || []).filter(y => y.sec === sec.id && !y.del)) {
+    if (inTasks(x.id)) continue;
     const at = x.group ? tasks.map(t => t.group).lastIndexOf(x.group) : -1;
     if (at >= 0) tasks.splice(at + 1, 0, x); else tasks.push(grouped ? { ...x, group: 'Свои пункты' } : x);
   }
   return { ...sec, tasks };
 });
 const groupsOf = sec => [...new Set(sec.tasks.map(x => x.group).filter(Boolean))];
+const inTasks = id => TASKS.sections.some(z => z.tasks.some(t => t.id === id));
+const secById = id => TASKS.sections.find(x => x.id === id);
 // фоновая перерисовка (опрос, сохранение) ждёт, пока открыта форма — иначе на телефоне закроется клавиатура
-function bgRender() { if (ADDING && root.querySelector('.addform')) { pendingRender = true; return; } render(); }
+function bgRender() { if ((ADDING || EDITING) && root.querySelector('.addform')) { pendingRender = true; return; } render(); }
 // подряд идущие дела одной подгруппы → [{ group, tasks }]
 function byGroup(tasks) {
   const out = [];
@@ -183,6 +189,7 @@ function listView() {
         ${shut ? '' : `${sec.note ? `<p class="cap note">${esc(sec.note)}</p>` : ''}
         ${byGroup(sec.tasks).map(gr => `${gr.group ? `<p class="grp">${esc(gr.group)}</p>` : ''}
         <ul class="rows">${gr.tasks.map(x => {
+          if (EDITING === x.id) return `<li>${itemForm('edit')}</li>`;
           const m = S.marks[x.id], by = m && m.by;
           return `<li><button class="row ${by ? 'done' : ''}" data-task="${esc(x.id)}" data-pts="${x.pts}">
             <span class="box" aria-hidden="true">${by ? '<svg viewBox="0 0 16 16"><path d="M3.5 8.5l3 3 6-7"/></svg>' : ''}</span>
@@ -191,7 +198,7 @@ function listView() {
             <span class="pts">+${x.pts}</span>
           </button></li>`;
         }).join('')}</ul>`).join('')}
-        ${ADDING === sec.id ? addForm(sec) : `<button class="add" data-add="${sec.id}">+ свой пункт</button>`}`}
+        ${ADDING === sec.id ? itemForm('add') : `<button class="add" data-add="${sec.id}">+ свой пункт</button>`}`}
       </section>`;
     }).join('')}
     <div class="foot">
@@ -201,40 +208,60 @@ function listView() {
     </div>`;
 }
 
-function addForm(sec) {
-  const d = DRAFT, gs = groupsOf(TASKS.sections.find(x => x.id === sec.id));
-  const chips = (name, vals, cur) => vals.map(v => `<label class="chip"><input type="radio" name="${name}" value="${esc(v)}" ${String(v) === String(cur) ? 'checked' : ''}><span>${esc(v)}</span></label>`).join('');
-  return `<form class="addform" data-sec="${sec.id}">
+// форма дела: добавление («+ свой пункт») и правка (долгое нажатие на дело) — одна и та же
+function itemForm(mode) {
+  const d = DRAFT, gs = groupsOf(secById(d.sec));
+  const chips = (name, vals, cur) => vals.map(v => { const [val, label] = Array.isArray(v) ? v : [v, v];
+    return `<label class="chip"><input type="radio" name="${name}" value="${esc(val)}" ${String(val) === String(cur) ? 'checked' : ''}><span>${esc(label)}</span></label>`; }).join('');
+  return `<form class="addform">
     <input name="name" value="${esc(d.name)}" placeholder="Что сделать?" autocomplete="off" aria-label="Что сделать">
     <div class="seg"><span class="cap lbl">Баллы</span>${chips('pts', [1, 2, 3, 4, 5], d.pts)}</div>
+    ${mode === 'edit' ? `<div class="seg"><span class="cap lbl">Помещение</span>${chips('sec', TASKS.sections.map(x => [x.id, x.name]), d.sec)}</div>` : ''}
     ${gs.length ? `<div class="seg"><span class="cap lbl">Подгруппа</span>${chips('group', gs, d.group)}</div>` : ''}
     <div class="opts">
       <label><input type="radio" name="keep" value="once" ${d.keep !== 'always' ? 'checked' : ''}> Только эта уборка</label>
-      <label><input type="radio" name="keep" value="always" ${d.keep === 'always' ? 'checked' : ''}> В постоянный список</label>
+      <label><input type="radio" name="keep" value="always" ${d.keep === 'always' ? 'checked' : ''}> ${mode === 'edit' && d.wasPerm ? 'В постоянном списке' : 'В постоянный список'}</label>
     </div>
     ${d.err ? `<p class="msg">${esc(d.err)}</p>` : ''}
-    <div class="seg"><button class="btn main" type="submit" ${d.busy ? 'disabled' : ''}>${d.busy ? 'Сохраняю…' : 'Добавить'}</button><button class="link" type="button" id="addcancel">Отмена</button></div>
+    <div class="seg"><button class="btn main" type="submit" ${d.busy ? 'disabled' : ''}>${d.busy ? 'Сохраняю…' : mode === 'edit' ? 'Сохранить' : 'Добавить'}</button><button class="link" type="button" id="formcancel">Отмена</button>
+      ${mode === 'edit' ? `<button class="link del" type="button" id="itemdel" ${d.busy ? 'disabled' : ''}>Удалить</button>` : ''}</div>
   </form>`;
 }
-function closeAdd() { ADDING = null; DRAFT = null; pendingRender = false; render(); }
+function closeForm() { ADDING = null; EDITING = null; DRAFT = null; pendingRender = false; render(); }
+function openEdit(id) {
+  const sec = sections().find(x => x.tasks.some(y => y.id === id)); if (!sec) return;
+  const t = sec.tasks.find(y => y.id === id), own = (S.extra || []).find(y => y.id === id);
+  const group = inTasks(id) ? t.group : (own && own.group) || '';
+  ADDING = null; EDITING = id;
+  DRAFT = { name: t.name, pts: t.pts, sec: sec.id, group: group || '', keep: inTasks(id) ? 'always' : 'once', wasPerm: inTasks(id) };
+  render();
+}
 
 // tasks.json пишем в том же виде, что и руками: одно дело — одна строка
 function tasksText(d) {
   const J = v => JSON.stringify(v);
   return `{\n  "scale": ${J(d.scale)},\n  "sections": [\n${d.sections.map(s => `    {\n      "id": ${J(s.id)},\n      "name": ${J(s.name)},\n${s.note ? `      "note": ${J(s.note)},\n` : ''}      "tasks": [\n${s.tasks.map(t => `        { "id": ${J(t.id)}, "name": ${J(t.name)}, "pts": ${t.pts}${t.group ? `, "group": ${J(t.group)}` : ''} }`).join(',\n')}\n      ]\n    }`).join(',\n')}\n  ]\n}\n`;
 }
-// дело в постоянный список: свежий tasks.json → вставить в конец подгруппы → записать; при конфликте — заново
-async function addForever(task, secId) {
+// постоянный список: свежий tasks.json → убрать дело, где бы оно ни было → (если task) вставить в конец подгруппы
+// нужного помещения → записать; при конфликте — заново. Так работают и добавление, и правка, и удаление.
+async function changeForever(id, task, secId, message) {
   for (let i = 0; ; i++) {
     const r = await getFile('tasks.json');
-    const sec = r.data.sections.find(x => x.id === secId);
-    if (!sec.tasks.some(t => t.id === task.id)) {
+    for (const sec of r.data.sections) sec.tasks = sec.tasks.filter(t => t.id !== id);
+    if (task) {
+      const sec = r.data.sections.find(x => x.id === secId);
       const at = task.group ? sec.tasks.map(t => t.group).lastIndexOf(task.group) : -1;
       sec.tasks.splice(at >= 0 ? at + 1 : sec.tasks.length, 0, task);
     }
-    try { await putFile('tasks.json', r.data, r.sha, `в постоянный список: ${task.name}`, tasksText(r.data)); return r.data; }
+    try { await putFile('tasks.json', r.data, r.sha, message, tasksText(r.data)); return r.data; }
     catch (e) { if (![409, 422].includes(e.status) || i >= 4) throw e; }
   }
+}
+// свой пункт этой уборки: добавить или заменить; время — чтобы при слиянии двух телефонов победила последняя правка
+function putExtra(x) {
+  S.extra = S.extra || [];
+  const i = S.extra.findIndex(y => y.id === x.id), v = { ...x, at: Date.now() };
+  if (i < 0) S.extra.push(v); else S.extra[i] = v;
 }
 
 function homeView() {
@@ -362,11 +389,12 @@ root.addEventListener('click', async e => {
   if (b.dataset.marker) { MARKER = b.dataset.marker; render(); return; }
   if (b.dataset.sec) { closed[b.dataset.sec] = !closed[b.dataset.sec]; LS.set('cl-closed', JSON.stringify(closed)); render(); return; }
   if (b.dataset.add) {
-    const gs = groupsOf(TASKS.sections.find(x => x.id === b.dataset.add));
-    ADDING = b.dataset.add; DRAFT = { name: '', pts: 2, group: gs[0] || '', keep: 'once' };
+    const gs = groupsOf(secById(b.dataset.add));
+    EDITING = null; ADDING = b.dataset.add; DRAFT = { name: '', pts: 2, sec: b.dataset.add, group: gs[0] || '', keep: 'once' };
     render(); const f = root.querySelector('.addform input[name=name]'); if (f) f.focus(); return;
   }
-  if (b.id === 'addcancel') { closeAdd(); return; }
+  if (b.id === 'formcancel') { closeForm(); return; }
+  if (b.id === 'itemdel') { await deleteItem(); return; }
   if (b.id === 'finish') { if (!confirm('Закончить уборку и посмотреть итог?')) return; S.fin = { v: true, at: Date.now() }; render(); queueSave(); window.scrollTo(0, 0); return; }
   if (b.id === 'reopen') { S.fin = { v: false, at: Date.now() }; render(); queueSave(); return; }
   if (b.id === 'start') { b.disabled = true; await startNew(); return; }
@@ -382,21 +410,63 @@ root.addEventListener('click', async e => {
 root.addEventListener('input', e => {
   const f = e.target.closest('.addform'); if (!f || !DRAFT) return;
   const t = e.target; DRAFT[t.name] = t.name === 'pts' ? +t.value : t.value;
+  if (t.name === 'sec') { const gs = groupsOf(secById(t.value)); if (!gs.includes(DRAFT.group)) DRAFT.group = gs[0] || ''; render(); }
 });
-root.addEventListener('submit', async e => {
-  if (e.target.classList.contains('addform')) {
-    e.preventDefault();
-    const d = DRAFT, name = (d.name || '').trim();
-    if (!name) { d.err = 'Напиши, что сделать'; render(); return; }
-    const task = { id: (d.keep === 'always' ? 'u-' : 'x-') + Date.now().toString(36), name, pts: d.pts, group: d.group || undefined };
-    if (d.keep === 'always') {
-      d.busy = true; d.err = ''; render();
-      try { TASKS = await addForever({ id: task.id, name, pts: task.pts, group: task.group }, ADDING); }
-      catch (err) { d.busy = false; d.err = 'Не получилось сохранить в постоянный список. Проверь интернет и нажми ещё раз.'; render(); return; }
-    }
-    S.extra = S.extra || []; S.extra.push({ ...task, sec: ADDING });
-    queueSave(); closeAdd(); return;
+const SAVE_ERR = 'Не получилось сохранить в постоянный список. Проверь интернет и нажми ещё раз.';
+async function saveItem() {
+  const d = DRAFT, name = (d.name || '').trim();
+  if (!name) { d.err = 'Напиши, что сделать'; render(); return; }
+  const editing = EDITING, id = editing || (d.keep === 'always' ? 'u-' : 'x-') + Date.now().toString(36);
+  // в постоянном списке дело без подгруппы потеряется среди чужих — ставим первую подгруппу помещения
+  const group = d.group || (d.keep === 'always' ? groupsOf(secById(d.sec))[0] : '') || undefined;
+  const task = { id, name, pts: d.pts, group };
+  if (d.keep === 'always' || d.wasPerm) {
+    d.busy = true; d.err = ''; render();
+    const msg = d.keep !== 'always' ? `из постоянного списка: ${name}` : editing && d.wasPerm ? `правка: ${name}` : `в постоянный список: ${name}`;
+    try { TASKS = await changeForever(id, d.keep === 'always' ? task : null, d.sec, msg); }
+    catch (err) { d.busy = false; d.err = SAVE_ERR; render(); return; }
   }
+  // в уборке: разовый — свой пункт; постоянный — копия для второго телефона, если пункт уже был в уборке или новый
+  const own = (S.extra || []).find(y => y.id === id);
+  if (d.keep !== 'always' || own || !editing) putExtra({ ...task, sec: d.sec });
+  // отметка уже стоит — переносим новые баллы, название и помещение
+  const m = S.marks[id];
+  if (m && m.by) S.marks[id] = { ...m, pts: d.pts, name, room: secById(d.sec).name, at: Date.now() };
+  queueSave(); closeForm();
+}
+async function deleteItem() {
+  const d = DRAFT, id = EDITING;
+  if (!confirm(`Удалить «${d.name}»${d.wasPerm ? ' из постоянного списка' : ''}?`)) return;
+  if (d.wasPerm) {
+    d.busy = true; d.err = ''; render();
+    try { TASKS = await changeForever(id, null, null, `удалено: ${d.name}`); }
+    catch (err) { d.busy = false; d.err = SAVE_ERR; render(); return; }
+  }
+  const own = (S.extra || []).find(y => y.id === id);
+  if (own) putExtra({ ...own, del: true });
+  const m = S.marks[id];
+  if (m && m.by) S.marks[id] = { ...m, by: null, at: Date.now() };
+  queueSave(); closeForm();
+}
+
+// долгое нажатие на дело — правка. Короткое нажатие — отметка, как раньше
+let pressTimer = null, pressXY = null, suppressClick = false;
+const cancelPress = () => { clearTimeout(pressTimer); pressTimer = null; };
+root.addEventListener('pointerdown', e => {
+  suppressClick = false;
+  const row = e.target.closest('.row'); if (!row) return;
+  pressXY = [e.clientX, e.clientY];
+  pressTimer = setTimeout(() => { pressTimer = null; suppressClick = true; if (navigator.vibrate) navigator.vibrate(10); openEdit(row.dataset.task); }, 500);
+});
+root.addEventListener('pointermove', e => { if (pressTimer && (Math.abs(e.clientX - pressXY[0]) > 10 || Math.abs(e.clientY - pressXY[1]) > 10)) cancelPress(); });
+root.addEventListener('pointerup', cancelPress);
+root.addEventListener('pointercancel', cancelPress);
+root.addEventListener('contextmenu', e => { if (e.target.closest('.row')) e.preventDefault(); });
+// клик, который приходит после долгого нажатия, не должен ставить галочку или нажимать что-то в открывшейся форме
+root.addEventListener('click', e => { if (suppressClick) { suppressClick = false; e.preventDefault(); e.stopImmediatePropagation(); } }, true);
+
+root.addEventListener('submit', async e => {
+  if (e.target.classList.contains('addform')) { e.preventDefault(); await saveItem(); return; }
   if (e.target.id !== 'login') return;
   e.preventDefault();
   TOKEN = e.target.key.value.trim(); LS.set('cl-token', TOKEN);
