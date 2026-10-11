@@ -36,6 +36,8 @@ const pad = n => String(n).padStart(2, '0');
 const isoDate = d => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 const dayOf = s => { const d = new Date(s.started), y = d.getFullYear(); return `${d.getDate()} ${MON_GEN[d.getMonth()]}${y !== new Date().getFullYear() ? ' ' + y : ''}`; };
 const WAVE = '<svg class="ls-wave" viewBox="0 0 190 8" aria-hidden="true"><path d="M1 4 Q 6 0 11 4 T 21 4 T 31 4 T 41 4 T 51 4 T 61 4 T 71 4 T 81 4 T 91 4 T 101 4 T 111 4 T 121 4 T 131 4 T 141 4 T 151 4 T 161 4 T 171 4 T 181 4"/></svg>';
+// карандаш у дела: виден при наведении мышью (на телефоне вместо него свайп)
+const PEN = '<svg viewBox="0 0 16 16"><path d="M10.5 2.5l3 3L6 13H3v-3z M9 4l3 3"/></svg>';
 const head = sub => `<header class="head"><h1 class="ls-title">Уборка</h1>${WAVE}${sub ? `<p class="cap">${sub}</p>` : ''}</header>`;
 
 /* ---------- GitHub ---------- */
@@ -200,6 +202,7 @@ function listView() {
             <button class="row ${by ? 'done' : ''}" data-task="${esc(x.id)}" data-pts="${x.pts}">
             <span class="box" aria-hidden="true">${by ? '<svg viewBox="0 0 16 16"><path d="M3.5 8.5l3 3 6-7"/></svg>' : ''}</span>
             <span class="name">${esc(x.name)}</span>
+            <span class="pen" data-pen="${esc(x.id)}" title="Править" aria-hidden="true">${PEN}</span>
             ${by ? `<span class="tag ${by}">${PEOPLE[by]}</span>` : ''}
             <span class="pts">+${x.pts}</span>
           </button></li>`;
@@ -209,7 +212,7 @@ function listView() {
     }).join('')}
     <div class="foot">
       <button class="btn" id="finish">Закончить уборку</button>
-      <p class="cap">Свайп влево по делу — править или удалить</p>
+      <p class="cap"><span class="hint-touch">Свайп влево по делу — править или удалить</span><span class="hint-mouse">Карандаш у дела при наведении — править или удалить</span></p>
       <button class="link" id="all">Прошлые уборки</button>
       ${footLinks()}
     </div>`;
@@ -385,6 +388,8 @@ root.addEventListener('click', async e => {
   // открыт свайп: нажатие мимо «Править / Удалить» его закрывает, галочку при этом не ставим
   if (OPEN && !e.target.closest('.acts')) { closeSwipe(); if (!b || b.dataset.task) return; }
   if (!b) return;
+  const pen = e.target.closest('[data-pen]');
+  if (pen) { openEdit(pen.dataset.pen); return; }
   if (b.dataset.task) {
     const id = b.dataset.task, m = S.marks[id];
     // название и помещение пишем в отметку: история не зависит от будущих правок списка
@@ -465,12 +470,15 @@ async function deleteTask(id) {
 
 // свайп влево по делу открывает «Править / Удалить». Ряд двигаем сами; вертикальную прокрутку
 // отдаём телефону (touch-action: pan-y), поэтому по вертикали pointermove не приходит — придёт pointercancel
-const ACTS_W = 168;
+const GAP = 10;  // между баллами и кнопками, когда ряд уехал
+let ACTS_W = 150; // ширина «Править / Удалить» — меряем на первом свайпе
 function closeSwipe() { const li = root.querySelector('.sw.open'); if (li) li.classList.remove('open'); OPEN = null; }
 root.addEventListener('pointerdown', e => {
   suppressClick = false;
+  if (e.pointerType === 'mouse') return;  // мышью — карандаш, свайп только пальцем
   const row = e.target.closest('.sw > .row'); if (!row) return;
-  const li = row.parentElement;
+  const li = row.parentElement, acts = li.querySelector('.acts');
+  if (acts && acts.offsetWidth) { ACTS_W = acts.offsetWidth + GAP; root.style.setProperty('--sw-open', `-${ACTS_W}px`); }
   drag = { id: li.dataset.sw, li, row, x0: e.clientX, y0: e.clientY, dx: 0, base: OPEN === li.dataset.sw ? -ACTS_W : 0, horiz: null, pid: e.pointerId };
 });
 root.addEventListener('pointermove', e => {
@@ -485,7 +493,7 @@ root.addEventListener('pointermove', e => {
   }
   if (!drag.horiz) return;
   drag.dx = dx;
-  drag.row.style.transform = `translateX(${Math.max(-ACTS_W - 24, Math.min(0, drag.base + dx))}px)`;
+  drag.row.style.transform = `translateX(${Math.max(-ACTS_W - 20, Math.min(0, drag.base + dx))}px)`;
 });
 function endDrag(e) {
   if (!drag || (e && e.pointerId !== drag.pid)) return;
