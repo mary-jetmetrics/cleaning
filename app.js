@@ -23,6 +23,7 @@ let VIEW = null, BACK = null;  // экран истории: 'all' — все у
 let ADDING = null, EDITING = null, DRAFT = null, pendingRender = false;
 let OPEN = null, drag = null, suppressClick = false;  // свайп: у какого дела открыты «Править / Удалить», текущее перетаскивание
 const closed = JSON.parse(LS.get('cl-closed') || '{}');
+let HIDE_DONE = LS.get('cl-hide') === '1';  // «Скрыть отмеченное» — на этом устройстве
 const root = document.getElementById('root');
 
 /* ---------- общее ---------- */
@@ -181,6 +182,7 @@ function listView() {
       <div class="seg" role="group" aria-label="За кого отмечаю">
         <span class="cap">Отмечаю за</span>
         ${['maria', 'gleb'].map(p => `<button class="btn ${MARKER === p ? 'main' : ''}" data-marker="${p}">${PEOPLE[p]}</button>`).join('')}
+        <button class="link hide-done" id="hidedone" aria-pressed="${HIDE_DONE}">${HIDE_DONE ? 'Показать всё' : 'Скрыть отмеченное'}</button>
       </div>
     </div>
     ${secs.map(sec => {
@@ -193,7 +195,8 @@ function listView() {
           <span class="chev" aria-hidden="true">${shut ? '›' : '⌄'}</span>
         </button>
         ${shut ? '' : `${sec.note ? `<p class="cap note">${esc(sec.note)}</p>` : ''}
-        ${byGroup(sec.tasks).map(gr => `${gr.group ? `<p class="grp">${esc(gr.group)}</p>` : ''}
+        ${HIDE_DONE && sec.tasks.length && d === sec.tasks.length && !sec.tasks.some(x => x.id === EDITING) ? '<p class="cap all-done">Всё отмечено</p>' : ''}
+        ${byGroup(sec.tasks.filter(x => !HIDE_DONE || !isDone(x.id) || x.id === EDITING)).map(gr => `${gr.group ? `<p class="grp">${esc(gr.group)}</p>` : ''}
         <ul class="rows">${gr.tasks.map(x => {
           if (EDITING === x.id) return `<li>${itemForm('edit')}</li>`;
           const m = S.marks[x.id], by = m && m.by;
@@ -401,6 +404,7 @@ root.addEventListener('click', async e => {
   if (b.dataset.hist) { BACK = VIEW === 'all' ? 'all' : null; VIEW = { id: b.dataset.hist }; render(); window.scrollTo(0, 0); return; }
   if (b.id === 'all') { BACK = null; VIEW = 'all'; render(); window.scrollTo(0, 0); return; }
   if (b.id === 'back') { VIEW = BACK; BACK = null; render(); window.scrollTo(0, 0); return; }
+  if (b.id === 'hidedone') { HIDE_DONE = !HIDE_DONE; LS.set('cl-hide', HIDE_DONE ? '1' : '0'); render(); return; }
   if (b.dataset.marker) { MARKER = b.dataset.marker; render(); return; }
   if (b.dataset.sec) { closed[b.dataset.sec] = !closed[b.dataset.sec]; LS.set('cl-closed', JSON.stringify(closed)); render(); return; }
   if (b.dataset.add) {

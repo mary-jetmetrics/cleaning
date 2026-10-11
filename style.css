@@ -42,6 +42,9 @@ button { background: none; border: 0; padding: 0; cursor: pointer; -webkit-tap-h
 .tag.gleb { background: var(--sky); }
 
 .seg { display: flex; align-items: center; gap: var(--space-2); flex-wrap: wrap; }
+/* «Скрыть отмеченное» — справа в строке «Отмечаю за», нейтральным текстом, как «Скрыть собранное» в «Поездках» */
+.hide-done { margin-left: auto; font-size: 13px; }
+.all-done { padding: var(--space-1) 0 var(--space-2); }
 .btn { display: inline-flex; align-items: center; justify-content: center; gap: var(--space-2); min-height: 40px; padding: 0 var(--space-4); border: 1px solid var(--line-strong); border-radius: var(--radius-sm); background: var(--bg); }
 .btn.main { background: var(--ink); border-color: var(--ink); color: var(--bg); }
 .btn.big { min-height: 48px; width: 100%; }
