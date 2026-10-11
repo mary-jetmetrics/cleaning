@@ -2,7 +2,7 @@
 :root {
   --bg: #ffffff; --surface: #fbfaf8; --line: #e8e6e6; --line-strong: #d3cfcf;
   --ink: #211c1c; --ink-muted: #6b6b6b; --accent: #e0679a;
-  --pink: #ffe5eb; --sky: #d9f5ff; --wave: #ecbf30; /* волна под заголовком — жёлтая, как фон иконки */
+  --pink: #ffe5eb; --sky: #d9f5ff; --wave: #fef7c9; /* волна под заголовком — цвета фона иконки, без затемнения */
   --space-1: 4px; --space-2: 8px; --space-3: 12px; --space-4: 16px; --space-6: 24px; --space-8: 32px;
   --radius-sm: 4px; --radius-md: 6px;
   --focus-ring: 0 0 0 2px #ffffff, 0 0 0 4px #211c1c;
@@ -24,7 +24,7 @@ button { background: none; border: 0; padding: 0; cursor: pointer; -webkit-tap-h
 .head { display: grid; gap: var(--space-2); margin-bottom: var(--space-3); }
 .ls-title { font-family: var(--font-display); font-size: 34px; line-height: 40px; font-weight: 400; margin: 0; }
 .ls-wave { display: block; width: 190px; height: 8px; margin-top: 2px; }
-.ls-wave path { fill: none; stroke: var(--wave); stroke-width: 1.4; }
+.ls-wave path { fill: none; stroke: var(--wave); stroke-width: 2.6; }
 
 /* счёт и переключатель «за кого отмечаю» — липкие, чтобы были под рукой */
 .sticky { position: sticky; top: 0; z-index: 2; background: var(--bg); padding: var(--space-2) 0 var(--space-3); border-bottom: 1px solid var(--line); display: grid; gap: var(--space-3); }
