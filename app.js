@@ -19,8 +19,9 @@ let S = null, SHA = null;     // текущая уборка и sha её фай�
 const HISTORY = {};           // id → прошлая уборка
 let saving = false, dirty = false, saveTimer = null, net = 'ok';
 let VIEW = null, BACK = null;  // экран истории: 'all' — все уборки, { id } — одна уборка; null — обычный
-// открытая форма дела: ADDING — id помещения («+ свой пункт»), EDITING — id дела (долгое нажатие); DRAFT — введённое
+// открытая форма дела: ADDING — id помещения («+ свой пункт»), EDITING — id дела (свайп → «Править»); DRAFT — введённое
 let ADDING = null, EDITING = null, DRAFT = null, pendingRender = false;
+let OPEN = null, drag = null, suppressClick = false;  // свайп: у какого дела открыты «Править / Удалить», текущее перетаскивание
 const closed = JSON.parse(LS.get('cl-closed') || '{}');
 const root = document.getElementById('root');
 
@@ -126,7 +127,10 @@ const groupsOf = sec => [...new Set(sec.tasks.map(x => x.group).filter(Boolean))
 const inTasks = id => TASKS.sections.some(z => z.tasks.some(t => t.id === id));
 const secById = id => TASKS.sections.find(x => x.id === id);
 // фоновая перерисовка (опрос, сохранение) ждёт, пока открыта форма — иначе на телефоне закроется клавиатура
-function bgRender() { if ((ADDING || EDITING) && root.querySelector('.addform')) { pendingRender = true; return; } render(); }
+function bgRender() {
+  if (((ADDING || EDITING) && root.querySelector('.addform')) || (drag && drag.horiz)) { pendingRender = true; return; }
+  render();
+}
 // подряд идущие дела одной подгруппы → [{ group, tasks }]
 function byGroup(tasks) {
   const out = [];
@@ -191,7 +195,9 @@ function listView() {
         <ul class="rows">${gr.tasks.map(x => {
           if (EDITING === x.id) return `<li>${itemForm('edit')}</li>`;
           const m = S.marks[x.id], by = m && m.by;
-          return `<li><button class="row ${by ? 'done' : ''}" data-task="${esc(x.id)}" data-pts="${x.pts}">
+          return `<li class="sw ${OPEN === x.id ? 'open' : ''}" data-sw="${esc(x.id)}">
+            <div class="acts"><button class="act edit" data-edit="${esc(x.id)}">Править</button><button class="act delete" data-del="${esc(x.id)}">Удалить</button></div>
+            <button class="row ${by ? 'done' : ''}" data-task="${esc(x.id)}" data-pts="${x.pts}">
             <span class="box" aria-hidden="true">${by ? '<svg viewBox="0 0 16 16"><path d="M3.5 8.5l3 3 6-7"/></svg>' : ''}</span>
             <span class="name">${esc(x.name)}</span>
             ${by ? `<span class="tag ${by}">${PEOPLE[by]}</span>` : ''}
@@ -203,12 +209,13 @@ function listView() {
     }).join('')}
     <div class="foot">
       <button class="btn" id="finish">Закончить уборку</button>
+      <p class="cap">Свайп влево по делу — править или удалить</p>
       <button class="link" id="all">Прошлые уборки</button>
       ${footLinks()}
     </div>`;
 }
 
-// форма дела: добавление («+ свой пункт») и правка (долгое нажатие на дело) — одна и та же
+// форма дела: добавление («+ свой пункт») и правка (свайп влево → «Править») — одна и та же
 function itemForm(mode) {
   const d = DRAFT, gs = groupsOf(secById(d.sec));
   const chips = (name, vals, cur) => vals.map(v => { const [val, label] = Array.isArray(v) ? v : [v, v];
@@ -374,7 +381,10 @@ async function startNew() {
 }
 
 root.addEventListener('click', async e => {
-  const b = e.target.closest('button'); if (!b) return;
+  const b = e.target.closest('button');
+  // открыт свайп: нажатие мимо «Править / Удалить» его закрывает, галочку при этом не ставим
+  if (OPEN && !e.target.closest('.acts')) { closeSwipe(); if (!b || b.dataset.task) return; }
+  if (!b) return;
   if (b.dataset.task) {
     const id = b.dataset.task, m = S.marks[id];
     // название и помещение пишем в отметку: история не зависит от будущих правок списка
@@ -394,7 +404,9 @@ root.addEventListener('click', async e => {
     render(); const f = root.querySelector('.addform input[name=name]'); if (f) f.focus(); return;
   }
   if (b.id === 'formcancel') { closeForm(); return; }
-  if (b.id === 'itemdel') { await deleteItem(); return; }
+  if (b.id === 'itemdel') { await deleteTask(EDITING); return; }
+  if (b.dataset.edit) { OPEN = null; openEdit(b.dataset.edit); return; }
+  if (b.dataset.del) { await deleteTask(b.dataset.del); return; }
   if (b.id === 'finish') { if (!confirm('Закончить уборку и посмотреть итог?')) return; S.fin = { v: true, at: Date.now() }; render(); queueSave(); window.scrollTo(0, 0); return; }
   if (b.id === 'reopen') { S.fin = { v: false, at: Date.now() }; render(); queueSave(); return; }
   if (b.id === 'start') { b.disabled = true; await startNew(); return; }
@@ -434,35 +446,59 @@ async function saveItem() {
   if (m && m.by) S.marks[id] = { ...m, pts: d.pts, name, room: secById(d.sec).name, at: Date.now() };
   queueSave(); closeForm();
 }
-async function deleteItem() {
-  const d = DRAFT, id = EDITING;
-  if (!confirm(`Удалить «${d.name}»${d.wasPerm ? ' из постоянного списка' : ''}?`)) return;
-  if (d.wasPerm) {
-    d.busy = true; d.err = ''; render();
-    try { TASKS = await changeForever(id, null, null, `удалено: ${d.name}`); }
-    catch (err) { d.busy = false; d.err = SAVE_ERR; render(); return; }
+// удалить дело: из постоянного списка (если оно там) и из уборки; отметка снимается
+async function deleteTask(id) {
+  const sec = sections().find(x => x.tasks.some(y => y.id === id)), t = sec && sec.tasks.find(y => y.id === id);
+  const name = t ? t.name : id, wasPerm = inTasks(id), fromForm = EDITING === id && DRAFT;
+  if (!confirm(`Удалить «${name}»${wasPerm ? ' из постоянного списка' : ''}?`)) return;
+  if (wasPerm) {
+    if (fromForm) { DRAFT.busy = true; DRAFT.err = ''; render(); } else setNet('saving');
+    try { TASKS = await changeForever(id, null, null, `удалено: ${name}`); }
+    catch (err) { if (fromForm) { DRAFT.busy = false; DRAFT.err = SAVE_ERR; render(); } else { setNet('err'); alert(SAVE_ERR); } return; }
   }
   const own = (S.extra || []).find(y => y.id === id);
   if (own) putExtra({ ...own, del: true });
   const m = S.marks[id];
   if (m && m.by) S.marks[id] = { ...m, by: null, at: Date.now() };
-  queueSave(); closeForm();
+  OPEN = null; queueSave(); closeForm();
 }
 
-// долгое нажатие на дело — правка. Короткое нажатие — отметка, как раньше
-let pressTimer = null, pressXY = null, suppressClick = false;
-const cancelPress = () => { clearTimeout(pressTimer); pressTimer = null; };
+// свайп влево по делу открывает «Править / Удалить». Ряд двигаем сами; вертикальную прокрутку
+// отдаём телефону (touch-action: pan-y), поэтому по вертикали pointermove не приходит — придёт pointercancel
+const ACTS_W = 168;
+function closeSwipe() { const li = root.querySelector('.sw.open'); if (li) li.classList.remove('open'); OPEN = null; }
 root.addEventListener('pointerdown', e => {
   suppressClick = false;
-  const row = e.target.closest('.row'); if (!row) return;
-  pressXY = [e.clientX, e.clientY];
-  pressTimer = setTimeout(() => { pressTimer = null; suppressClick = true; if (navigator.vibrate) navigator.vibrate(10); openEdit(row.dataset.task); }, 500);
+  const row = e.target.closest('.sw > .row'); if (!row) return;
+  const li = row.parentElement;
+  drag = { id: li.dataset.sw, li, row, x0: e.clientX, y0: e.clientY, dx: 0, base: OPEN === li.dataset.sw ? -ACTS_W : 0, horiz: null, pid: e.pointerId };
 });
-root.addEventListener('pointermove', e => { if (pressTimer && (Math.abs(e.clientX - pressXY[0]) > 10 || Math.abs(e.clientY - pressXY[1]) > 10)) cancelPress(); });
-root.addEventListener('pointerup', cancelPress);
-root.addEventListener('pointercancel', cancelPress);
-root.addEventListener('contextmenu', e => { if (e.target.closest('.row')) e.preventDefault(); });
-// клик, который приходит после долгого нажатия, не должен ставить галочку или нажимать что-то в открывшейся форме
+root.addEventListener('pointermove', e => {
+  if (!drag || e.pointerId !== drag.pid) return;
+  const dx = e.clientX - drag.x0, dy = e.clientY - drag.y0;
+  if (drag.horiz === null && (Math.abs(dx) > 8 || Math.abs(dy) > 8)) {
+    drag.horiz = Math.abs(dx) > Math.abs(dy);
+    if (!drag.horiz) { drag = null; return; }
+    if (OPEN && OPEN !== drag.id) closeSwipe();
+    drag.li.classList.add('drag'); drag.row.classList.add('dragging');
+    try { drag.row.setPointerCapture(drag.pid); } catch (err) { /* без захвата тоже работает */ }
+  }
+  if (!drag.horiz) return;
+  drag.dx = dx;
+  drag.row.style.transform = `translateX(${Math.max(-ACTS_W - 24, Math.min(0, drag.base + dx))}px)`;
+});
+function endDrag(e) {
+  if (!drag || (e && e.pointerId !== drag.pid)) return;
+  const d = drag; drag = null;
+  if (!d.horiz) return;  // обычное нажатие — это отметка, её делает click
+  suppressClick = true;  // click после свайпа не должен ставить галочку
+  d.row.classList.remove('dragging'); d.li.classList.remove('drag'); d.row.style.transform = '';
+  if (d.base + d.dx < -ACTS_W / 2) { OPEN = d.id; d.li.classList.add('open'); }
+  else { if (OPEN === d.id) OPEN = null; d.li.classList.remove('open'); }
+  if (pendingRender) { pendingRender = false; render(); }
+}
+root.addEventListener('pointerup', endDrag);
+root.addEventListener('pointercancel', endDrag);
 root.addEventListener('click', e => { if (suppressClick) { suppressClick = false; e.preventDefault(); e.stopImmediatePropagation(); } }, true);
 
 root.addEventListener('submit', async e => {
