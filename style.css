@@ -73,6 +73,11 @@ button { background: none; border: 0; padding: 0; cursor: pointer; -webkit-tap-h
 .result .tag.maria { background: var(--bg); }
 .result .link { justify-self: start; }
 .hist { display: flex; justify-content: space-between; gap: var(--space-3); padding: var(--space-2) 0; }
+/* история: строка уборки — кнопка, внутри уборки — кто что сделал */
+.histrow { width: 100%; display: flex; justify-content: space-between; align-items: baseline; gap: var(--space-3); padding: var(--space-2) 0; min-height: 44px; text-align: left; }
+.back { justify-self: start; }
+.who { display: flex; align-items: baseline; gap: var(--space-2); padding: var(--space-2) 0 0; }
+.drow { display: flex; justify-content: space-between; align-items: baseline; gap: var(--space-3); padding: 9px 0; }
 
 .foot { display: grid; gap: var(--space-4); justify-items: start; margin-top: var(--space-3); }
 .links { line-height: 22px; }

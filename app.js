@@ -18,6 +18,7 @@ let LIST = [];                // id всех уборок, по порядку
 let S = null, SHA = null;     // текущая уборка и sha её файла
 const HISTORY = {};           // id → прошлая уборка
 let saving = false, dirty = false, saveTimer = null, net = 'ok';
+let VIEW = null, BACK = null;  // экран истории: 'all' — все уборки, { id } — одна уборка; null — обычный
 const closed = JSON.parse(LS.get('cl-closed') || '{}');
 const root = document.getElementById('root');
 
@@ -30,7 +31,7 @@ const b64enc = str => { const bytes = new TextEncoder().encode(str); let bin = '
 const b64dec = b64 => new TextDecoder().decode(Uint8Array.from(atob(b64.replace(/\s/g, '')), c => c.charCodeAt(0)));
 const pad = n => String(n).padStart(2, '0');
 const isoDate = d => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
-const dayOf = s => { const d = new Date(s.started); return `${d.getDate()} ${MON_GEN[d.getMonth()]}`; };
+const dayOf = s => { const d = new Date(s.started), y = d.getFullYear(); return `${d.getDate()} ${MON_GEN[d.getMonth()]}${y !== new Date().getFullYear() ? ' ' + y : ''}`; };
 const WAVE = '<svg class="ls-wave" viewBox="0 0 190 8" aria-hidden="true"><path d="M1 4 Q 6 0 11 4 T 21 4 T 31 4 T 41 4 T 51 4 T 61 4 T 71 4 T 81 4 T 91 4 T 101 4 T 111 4 T 121 4 T 131 4 T 141 4 T 151 4 T 161 4 T 171 4 T 181 4"/></svg>';
 const head = sub => `<header class="head"><h1 class="ls-title">Уборка</h1>${WAVE}${sub ? `<p class="cap">${sub}</p>` : ''}</header>`;
 
@@ -130,6 +131,8 @@ function verdict(t) {
 /* ---------- экраны ---------- */
 function render() {
   if (!TASKS) return;
+  if (VIEW === 'all') return allView();
+  if (VIEW) return oneView(VIEW.id);
   if (!S || (S.fin && S.fin.v)) return homeView();
   listView();
 }
@@ -184,23 +187,22 @@ function listView() {
     }).join('')}
     <div class="foot">
       <button class="btn" id="finish">Закончить уборку</button>
+      <button class="link" id="all">Прошлые уборки</button>
       ${footLinks()}
     </div>`;
 }
 
 function homeView() {
-  const past = LIST.filter(id => !S || id !== S.id).slice(-10).reverse();
+  const past = LIST.filter(id => !S || id !== S.id).reverse();
   root.innerHTML = `
     ${head(S ? `Последняя уборка ${dayOf(S)}` : 'Список дел с баллами: кто что сделал, тот и получил')}
     ${S ? `<section class="result">
       <p class="sec-name">${esc(resultLine(totals(S)))}</p>
       ${scoreBlock(totals(S), 0)}
-      <button class="link" id="reopen">Продолжить эту уборку</button>
+      <p class="cap links"><button class="link" data-hist="${esc(S.id)}">Кто что сделал</button> · <button class="link" id="reopen">Продолжить эту уборку</button></p>
     </section>` : ''}
     <button class="btn main big" id="start">Начать уборку</button>
-    ${past.length ? `<section class="block"><p class="sec-name">Прошлые уборки</p><ul class="rows">
-      ${past.map(id => { const h = HISTORY[id]; if (!h) return `<li class="hist cap">${id}…</li>`; const t = totals(h); return `<li class="hist"><span>${dayOf(h)}</span><span class="cap">Мария ${t.maria} · Глеб ${t.gleb}</span></li>`; }).join('')}
-    </ul></section>` : ''}
+    ${past.length ? `<section class="block"><p class="sec-name">Прошлые уборки</p>${histRows(past)}</section>` : ''}
     <div class="foot">${footLinks()}</div>`;
   loadHistory(past);
 }
@@ -210,10 +212,69 @@ function resultLine(t) {
   return `${w === 'maria' ? 'Победила' : 'Победил'} ${PEOPLE[w]}: ${t[w]} против ${t[l]}`;
 }
 async function loadHistory(ids) {
-  const need = ids.filter(id => !HISTORY[id]);
+  const need = ids.filter(id => !HISTORY[id] && !(S && S.id === id));
   if (!need.length) return;
   await Promise.all(need.map(async id => { try { HISTORY[id] = (await getFile(`sessions/${id}.json`)).data; } catch (e) { /* покажем позже */ } }));
-  if (!S || (S.fin && S.fin.v)) homeView();
+  if (VIEW || !S || (S.fin && S.fin.v)) render();
+}
+
+/* ---------- история: все уборки и одна уборка ---------- */
+const sessionOf = id => (S && S.id === id) ? S : HISTORY[id];
+function histRows(ids) {
+  return `<ul class="rows">${ids.map(id => {
+    const h = sessionOf(id);
+    if (!h) return `<li class="hist cap">${esc(id)}…</li>`;
+    const t = totals(h), live = !(h.fin && h.fin.v);
+    return `<li><button class="histrow" data-hist="${esc(id)}">
+      <span>${dayOf(h)}${live ? ' <span class="cap">· идёт</span>' : ''}</span>
+      <span class="cap">Мария ${t.maria} · Глеб ${t.gleb} <span class="chev" aria-hidden="true">›</span></span>
+    </button></li>`;
+  }).join('')}</ul>`;
+}
+function allView() {
+  const ids = [...LIST].reverse();
+  root.innerHTML = `
+    ${head('Все уборки: дата и счёт, внутри — кто что сделал')}
+    <button class="link back" id="back">← Назад</button>
+    ${ids.length ? `<section class="block">${histRows(ids)}</section>` : '<p class="cap">Уборок ещё не было</p>'}`;
+  loadHistory(ids);
+}
+// что за дело: название и помещение — из самой отметки, иначе из нынешнего списка или своих пунктов уборки
+function markInfo(id, m, h) {
+  const order = (room, i) => ({ ri: TASKS.sections.findIndex(x => x.name === room), i });
+  for (const [si, sec] of TASKS.sections.entries()) {
+    const i = sec.tasks.findIndex(x => x.id === id);
+    if (i >= 0) return { name: m.name || sec.tasks[i].name, room: m.room || sec.name, ...order(m.room || sec.name, i), at: m.at };
+  }
+  const x = (h.extra || []).find(y => y.id === id);
+  const sec = x && TASKS.sections.find(y => y.id === x.sec);
+  const room = m.room || (sec ? sec.name : 'Другое');
+  return { name: m.name || (x ? x.name : id), room, ...order(room, 999), at: m.at };
+}
+function oneView(id) {
+  const h = sessionOf(id);
+  if (!h) { root.innerHTML = `${head('Загружаю…')}`; loadHistory([id]); return; }
+  const t = totals(h);
+  const person = p => {
+    const done = Object.entries(h.marks || {}).filter(([, m]) => m.by === p).map(([k, m]) => ({ ...markInfo(k, m, h), pts: m.pts }));
+    done.sort((a, b) => ((a.ri < 0 ? 99 : a.ri) - (b.ri < 0 ? 99 : b.ri)) || (a.i - b.i) || (a.at - b.at));
+    const rooms = [];
+    for (const x of done) { const last = rooms[rooms.length - 1]; if (last && last.room === x.room) last.items.push(x); else rooms.push({ room: x.room, items: [x] }); }
+    return `<section class="block">
+      <div class="who"><span class="tag ${p}">${PEOPLE[p]}</span><span class="cap">${pts(t[p])} · ${t[p + 'N']} ${plural(t[p + 'N'], 'дело', 'дела', 'дел')}</span></div>
+      ${rooms.length ? rooms.map(r => `<p class="grp">${esc(r.room)}</p><ul class="rows">${r.items.map(x => `<li class="drow"><span>${esc(x.name)}</span><span class="pts">+${x.pts}</span></li>`).join('')}</ul>`).join('')
+        : `<p class="cap">${p === 'maria' ? 'Ничего не отметила' : 'Ничего не отметил'}</p>`}
+    </section>`;
+  };
+  root.innerHTML = `
+    ${head(`Уборка ${dayOf(h)}${h.fin && h.fin.v ? '' : ' · идёт'}`)}
+    <button class="link back" id="back">← Назад</button>
+    <section class="result">
+      <p class="sec-name">${esc(h.fin && h.fin.v ? resultLine(t) : verdict(t))}</p>
+      ${scoreBlock(t, 0)}
+    </section>
+    ${person('maria')}
+    ${person('gleb')}`;
 }
 function footLinks() {
   return `<p class="cap links">Это устройство: ${PEOPLE[ME]} · <button class="link" id="share">Ссылка для ${ME === 'maria' ? 'Глеба' : 'Марии'}</button> · <button class="link" id="logout">Выйти</button></p>`;
@@ -244,9 +305,15 @@ root.addEventListener('click', async e => {
   const b = e.target.closest('button'); if (!b) return;
   if (b.dataset.task) {
     const id = b.dataset.task, m = S.marks[id];
-    S.marks[id] = (m && m.by) ? { by: null, at: Date.now(), pts: +b.dataset.pts } : { by: MARKER, at: Date.now(), pts: +b.dataset.pts };
+    // название и помещение пишем в отметку: история не зависит от будущих правок списка
+    const sec = sections().find(x => x.tasks.some(y => y.id === id)), task = sec && sec.tasks.find(y => y.id === id);
+    S.marks[id] = (m && m.by) ? { by: null, at: Date.now(), pts: +b.dataset.pts }
+      : { by: MARKER, at: Date.now(), pts: +b.dataset.pts, name: task ? task.name : id, room: sec ? sec.name : '' };
     render(); queueSave(); return;
   }
+  if (b.dataset.hist) { BACK = VIEW === 'all' ? 'all' : null; VIEW = { id: b.dataset.hist }; render(); window.scrollTo(0, 0); return; }
+  if (b.id === 'all') { BACK = null; VIEW = 'all'; render(); window.scrollTo(0, 0); return; }
+  if (b.id === 'back') { VIEW = BACK; BACK = null; render(); window.scrollTo(0, 0); return; }
   if (b.dataset.marker) { MARKER = b.dataset.marker; render(); return; }
   if (b.dataset.sec) { closed[b.dataset.sec] = !closed[b.dataset.sec]; LS.set('cl-closed', JSON.stringify(closed)); render(); return; }
   if (b.dataset.add) {
