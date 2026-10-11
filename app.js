@@ -290,7 +290,7 @@ function homeView() {
 }
 // итог уборки: дата, счёт, победитель — подписью у метки, полоска — доли сделанного, всего сделано.
 // Несделанное не показываем: не сделали — значит, решили не делать (Мария, 11.10.26)
-// корона у счёта победителя — из варианта №1 (https://claude.ai/artifact/5pmKTsEhfw3Y7CL9HYdEBF)
+// корона победителя — у метки, вместо подписи «победила» (корона из варианта №1, https://claude.ai/artifact/5pmKTsEhfw3Y7CL9HYdEBF)
 const CROWN = '<svg class="crown" viewBox="0 0 18 14" aria-hidden="true"><path d="M2 12 L3 3 L7 7 L9 2 L11 7 L15 3 L16 12 Z"/></svg>';
 function resultBlock(h, links = '') {
   const t = totals(h), d = new Date(h.started), fin = h.fin && h.fin.v;
@@ -301,8 +301,8 @@ function resultBlock(h, links = '') {
     <p class="cap">${dayOf(h)}, ${WEEKDAY[d.getDay()]}${fin ? '' : ' · идёт'}${!lead && n ? ' · ничья' : ''}</p>
     <div class="people">
       ${['maria', 'gleb'].map(p => `<div class="person ${lead && lead !== p ? 'lost' : ''}">
-        <span class="who-line"><span class="tag ${p}">${PEOPLE[p]}</span>${lead === p ? `<span class="win">${word(p)}</span>` : ''}</span>
-        <span class="num-line"><span class="num">${t[p]}</span>${lead === p ? CROWN : ''}</span>
+        <span class="who-line"><span class="tag ${p}">${PEOPLE[p]}</span>${lead === p ? `${CROWN}<span class="sr">${word(p)}</span>` : ''}</span>
+        <span class="num">${t[p]}</span>
         <span class="cap">${plural(t[p], 'балл', 'балла', 'баллов')} · ${t[p + 'N']} ${plural(t[p + 'N'], 'дело', 'дела', 'дел')}</span>
       </div>`).join('')}
     </div>
@@ -558,4 +558,18 @@ async function boot() {
     root.innerHTML = `${head('Нет связи с GitHub. Обнови страницу через минуту.')}`;
   }
 }
+// свежая версия: GitHub Pages разрешает браузеру 10 минут держать старую страницу. Сверяем номер версии
+// в свежем index.html с загруженным и при расхождении перезагружаем — один раз на версию
+const MY_V = (document.querySelector('script[src*="app.js?v="]') || { src: '' }).src.split('v=')[1] || '';
+async function checkFresh() {
+  try {
+    const html = await (await fetch(`${location.pathname}?fresh=${Date.now()}`, { cache: 'no-store' })).text();
+    const v = (html.match(/app\.js\?v=([\w-]+)/) || [])[1];
+    if (!v || !MY_V || v === MY_V) return;
+    if (sessionStorage.getItem('cl-reloaded') === v) return;
+    sessionStorage.setItem('cl-reloaded', v); location.reload();
+  } catch (e) { /* без сети — в другой раз */ }
+}
+document.addEventListener('visibilitychange', () => { if (!document.hidden) checkFresh(); });
+checkFresh();
 boot();
