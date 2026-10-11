@@ -106,6 +106,10 @@ button { background: none; border: 0; padding: 0; cursor: pointer; -webkit-tap-h
 .opts label { display: flex; align-items: center; gap: var(--space-2); }
 .opts input { margin: 0; accent-color: var(--ink); }
 
+/* победитель — подпись у метки, у проигравшего счёт приглушён */
+.who-line { display: flex; align-items: center; gap: var(--space-2); }
+.win { font-size: 12.5px; line-height: 18px; font-weight: 600; }
+.person.lost .num { color: var(--ink-muted); }
 /* итог уборки — белый блок с рамкой, чтобы метка Марии везде была розовой (Мария, 11.10.26) */
 .result { display: grid; gap: var(--space-3); padding: var(--space-4); border-radius: var(--radius-md); background: var(--bg); border: 1px solid var(--line); }
 .result .link { justify-self: start; }

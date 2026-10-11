@@ -160,14 +160,14 @@ function render() {
   listView();
 }
 
-function scoreBlock(t, all, done, withVerdict = true) {
+function scoreBlock(t, all, done) {
   const sum = all || 1;
   return `<div class="score">
     <div class="people">
       ${['maria', 'gleb'].map(p => `<div class="person"><span class="tag ${p}">${PEOPLE[p]}</span><span class="num">${t[p]}</span><span class="cap">${plural(t[p], 'балл', 'балла', 'баллов')} · ${t[p + 'N']} ${plural(t[p + 'N'], 'дело', 'дела', 'дел')}</span></div>`).join('')}
     </div>
     ${all ? `<div class="bar" aria-hidden="true"><i class="maria" style="width:${t.maria / sum * 100}%"></i><i class="gleb" style="width:${t.gleb / sum * 100}%"></i></div>
-    <p class="cap">${withVerdict ? `${verdict(t)} · ` : ''}сделано ${done.n} из ${done.of}</p>` : ''}
+    <p class="cap">${verdict(t)} · сделано ${done.n} из ${done.of}</p>` : ''}
   </div>`;
 }
 
@@ -281,35 +281,33 @@ function putExtra(x) {
 function homeView() {
   const past = LIST.filter(id => !S || id !== S.id).reverse();
   root.innerHTML = `
-    ${head(S ? `Последняя уборка ${dayOf(S)}` : 'Список дел с баллами: кто что сделал, тот и получил')}
+    ${head(S ? 'Последняя уборка' : 'Список дел с баллами: кто что сделал, тот и получил')}
     ${S ? resultBlock(S, `<p class="cap links"><button class="link" data-hist="${esc(S.id)}">Кто что сделал</button> · <button class="link" id="reopen">Продолжить эту уборку</button></p>`) : ''}
     <button class="btn main big" id="start">Начать уборку</button>
     ${past.length ? `<section class="block"><p class="sec-name">Прошлые уборки</p>${histRows(past)}</section>` : ''}
     <div class="foot">${footLinks()}</div>`;
   loadHistory(past);
 }
-// итог уборки: дата, кто победил, счёт и полоска «сколько сделано из списка»
-// Сколько было дел и баллов — запомнено при «Закончить уборку»; у более ранних — по нынешнему списку и своим пунктам уборки
-function sessionSize(h) {
-  if (h.fin && h.fin.v && h.fin.all) return { all: h.fin.all, of: h.fin.of };
-  let all = 0, of = 0; const ids = new Set();
-  for (const sec of TASKS.sections) for (const x of sec.tasks) { all += x.pts; of++; ids.add(x.id); }
-  for (const x of h.extra || []) if (!x.del && !ids.has(x.id)) { all += x.pts; of++; }
-  return { all, of };
-}
+// итог уборки: дата, счёт, победитель — подписью у метки, полоска — доли сделанного, всего сделано.
+// Несделанное не показываем: не сделали — значит, решили не делать (Мария, 11.10.26)
 function resultBlock(h, links = '') {
-  const t = totals(h), size = sessionSize(h), d = new Date(h.started), fin = h.fin && h.fin.v;
+  const t = totals(h), d = new Date(h.started), fin = h.fin && h.fin.v;
+  const n = t.mariaN + t.glebN, sum = t.maria + t.gleb || 1;
+  const lead = t.maria === t.gleb ? null : t.maria > t.gleb ? 'maria' : 'gleb';
+  const word = p => fin ? (p === 'maria' ? 'победила' : 'победил') : 'впереди';
   return `<section class="result">
-    <p class="cap">${dayOf(h)}, ${WEEKDAY[d.getDay()]}${fin ? '' : ' · идёт'}</p>
-    <p class="sec-name">${esc(fin ? resultLine(t) : verdict(t))}</p>
-    ${scoreBlock(t, size.all, { n: t.mariaN + t.glebN, of: size.of }, false)}
+    <p class="cap">${dayOf(h)}, ${WEEKDAY[d.getDay()]}${fin ? '' : ' · идёт'}${!lead && n ? ' · ничья' : ''}</p>
+    <div class="people">
+      ${['maria', 'gleb'].map(p => `<div class="person ${lead && lead !== p ? 'lost' : ''}">
+        <span class="who-line"><span class="tag ${p}">${PEOPLE[p]}</span>${lead === p ? `<span class="win">${word(p)}</span>` : ''}</span>
+        <span class="num">${t[p]}</span>
+        <span class="cap">${plural(t[p], 'балл', 'балла', 'баллов')} · ${t[p + 'N']} ${plural(t[p + 'N'], 'дело', 'дела', 'дел')}</span>
+      </div>`).join('')}
+    </div>
+    ${n ? `<div class="bar" aria-hidden="true"><i class="maria" style="width:${t.maria / sum * 100}%"></i><i class="gleb" style="width:${t.gleb / sum * 100}%"></i></div>
+    <p class="cap">Всего сделано ${n} ${plural(n, 'дело', 'дела', 'дел')}</p>` : '<p class="cap">Ничего не отмечено</p>'}
     ${links}
   </section>`;
-}
-function resultLine(t) {
-  if (t.maria === t.gleb) return t.maria ? `Ничья: по ${pts(t.maria)}` : 'Уборка закончилась, не начавшись. Бывает';
-  const [w, l] = t.maria > t.gleb ? ['maria', 'gleb'] : ['gleb', 'maria'];
-  return `${w === 'maria' ? 'Победила' : 'Победил'} ${PEOPLE[w]}: ${t[w]} против ${t[l]}`;
 }
 async function loadHistory(ids) {
   const need = ids.filter(id => !HISTORY[id] && !(S && S.id === id));
@@ -428,7 +426,7 @@ root.addEventListener('click', async e => {
   if (b.id === 'itemdel') { await deleteTask(EDITING); return; }
   if (b.dataset.edit) { OPEN = null; openEdit(b.dataset.edit); return; }
   if (b.dataset.del) { await deleteTask(b.dataset.del); return; }
-  if (b.id === 'finish') { if (!confirm('Закончить уборку и посмотреть итог?')) return; const size = sessionSize({ ...S, fin: null }); S.fin = { v: true, at: Date.now(), all: size.all, of: size.of }; render(); queueSave(); window.scrollTo(0, 0); return; }
+  if (b.id === 'finish') { if (!confirm('Закончить уборку и посмотреть итог?')) return; S.fin = { v: true, at: Date.now() }; render(); queueSave(); window.scrollTo(0, 0); return; }
   if (b.id === 'reopen') { S.fin = { v: false, at: Date.now() }; render(); queueSave(); return; }
   if (b.id === 'start') { b.disabled = true; await startNew(); return; }
   if (b.id === 'share') {
