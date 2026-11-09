@@ -403,6 +403,8 @@ root.addEventListener('click', async e => {
   // открыт свайп: нажатие мимо «Править / Удалить» его закрывает, галочку при этом не ставим
   if (OPEN && !e.target.closest('.acts')) { closeSwipe(); if (!b || b.dataset.task) return; }
   if (!b) return;
+  if (b.id === 'retry') { boot(); return; }
+  if (b.id === 'newkey') { loginView(); return; }
   const pen = e.target.closest('[data-pen]');
   if (pen) { openEdit(pen.dataset.pen); return; }
   if (b.dataset.task) {
@@ -554,8 +556,15 @@ async function boot() {
     render();
     if (!polling) { polling = true; setInterval(poll, 8000); document.addEventListener('visibilitychange', poll); }
   } catch (e) {
-    if ([401, 403, 404].includes(e.status)) { LS.del('cl-token'); TOKEN = null; return loginView('Ключ не подошёл. Проверь, что он для репозитория cleaning-data и не просрочен.'); }
-    root.innerHTML = `${head('Нет связи с GitHub. Обнови страницу через минуту.')}`;
+    // ключ сам не стираем (Мария, 09.11.26: «вылетает постоянно»): разовый 401/403 от GitHub раньше стирал его
+    // и приложение просило ключ заново. Сменить ключ — только кнопкой «Ввести другой ключ» или «Выйти»
+    const bad = [401, 403, 404].includes(e.status);
+    root.innerHTML = `${head(bad ? 'GitHub не пустил с этим ключом' : 'Нет связи с GitHub')}
+      <div class="block login">
+        <p class="msg">${bad ? 'Бывает при сбое у GitHub — попробуй ещё раз. Не проходит — значит, ключ перевыпустили или он просрочен: введи новый.' : 'Проверь интернет и попробуй ещё раз.'}</p>
+        <button class="btn main" id="retry">Попробовать ещё раз</button>
+        ${bad ? '<button class="btn" id="newkey">Ввести другой ключ</button>' : ''}
+      </div>`;
   }
 }
 // свежая версия: GitHub Pages разрешает браузеру 10 минут держать старую страницу. Сверяем номер версии
